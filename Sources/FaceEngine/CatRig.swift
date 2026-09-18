@@ -208,6 +208,26 @@ public struct CatRig: Sendable {
         return amp * w * w * (0.58 + 0.42 * cos(d / width * .pi * 3))
     }
 
+    /// How far above the unit sphere the snout's surface lies in a given
+    /// direction, expressed as a `lift` for `tangentFrame`.
+    ///
+    /// Every muzzle feature is solved against this one sphere, so they all sit
+    /// on a single surface and rotate with the head as one rigid piece. Given
+    /// hand-picked lifts instead, they parallax by different amounts on a turn
+    /// and visibly slide apart — the mouth drifting off the muzzle it belongs to.
+    private func snoutLift(lon: Double, lat: Double) -> Double {
+        let direction = Vec3.onSphere(lon: lon, lat: lat)
+        let centre = Vec3(0, proportions.muzzleDrop, proportions.muzzleForward)
+        let a = proportions.muzzleRadius
+
+        // |t·d − m|² = a², with d a unit vector: t² − 2t(d·m) + |m|² − a² = 0.
+        let b = direction.dot(centre)
+        let c = centre.dot(centre) - a * a
+        let discriminant = b * b - c
+        guard discriminant >= 0 else { return proportions.muzzleLift }
+        return max(b + discriminant.squareRoot() - 1, 0)
+    }
+
     /// Distance from the head centre to the far side of the snout ellipse along
     /// a unit direction, or 0 if the ray misses it.
     ///
@@ -570,14 +590,15 @@ public struct CatRig: Sendable {
         var shapes: [Shape2D] = []
 
         // Nose: a soft downward triangle, riding out on the snout.
-        let lift = proportions.muzzleLift
 
         // The muzzle patch: fur on the snout catches more light than the cheeks
         // around it. Without it the lower face is one flat black expanse, since
         // the snout itself stays invisible until the head turns. Drawn in the
         // muzzle's own tangent frame so it foreshortens with everything else —
         // sized off the snout silhouette it came out a disc over the whole face.
-        let patchFrame = projector.tangentFrame(lon: 0, lat: -0.400, lift: lift)
+        let patchFrame = projector.tangentFrame(
+            lon: 0, lat: -0.400, lift: snoutLift(lon: 0, lat: -0.400)
+        )
         if patchFrame.visibility() > 0.01 {
             var patch = PathBuilder()
             patch.ellipse(center: .zero, rx: 0.190 * radius, ry: 0.140 * radius)
@@ -589,7 +610,9 @@ public struct CatRig: Sendable {
             )
         }
         let noseFrame = projector.tangentFrame(
-            lon: 0, lat: proportions.noseLatitude, lift: lift
+            lon: 0,
+            lat: proportions.noseLatitude,
+            lift: snoutLift(lon: 0, lat: proportions.noseLatitude)
         )
         let noseVisibility = noseFrame.visibility()
         if noseVisibility > 0.01 {
@@ -626,7 +649,9 @@ public struct CatRig: Sendable {
 
         // Mouth: the cat's ω, hanging off a short philtrum.
         let mouthFrame = projector.tangentFrame(
-            lon: 0, lat: proportions.mouthLatitude, lift: lift * 0.75
+            lon: 0,
+            lat: proportions.mouthLatitude,
+            lift: snoutLift(lon: 0, lat: proportions.mouthLatitude)
         )
         let mouthVisibility = mouthFrame.visibility()
         if mouthVisibility > 0.01 {
@@ -667,10 +692,11 @@ public struct CatRig: Sendable {
 
         // Whisker pads with their follicle dots.
         for side in [-1.0, 1.0] {
+            let padLon = side * proportions.muzzleLongitude
             let frame = projector.tangentFrame(
-                lon: side * proportions.muzzleLongitude,
+                lon: padLon,
                 lat: proportions.muzzleLatitude,
-                lift: lift * 0.8
+                lift: snoutLift(lon: padLon, lat: proportions.muzzleLatitude)
             )
             let visibility = frame.visibility()
             guard visibility > 0.01 else { continue }
@@ -732,7 +758,7 @@ public struct CatRig: Sendable {
                 // Whiskers grow from the pads, which sit on the snout, so their
                 // roots ride out in front of the skull with it.
                 let root = Vec3.onSphere(lon: lon, lat: lat)
-                    * (1 + proportions.muzzleLift * 0.7)
+                    * (1 + snoutLift(lon: lon, lat: lat))
                 let east = Vec3.east(lon: lon)
                 let north = Vec3.north(lon: lon, lat: lat)
 
