@@ -35,6 +35,9 @@ A few details carry most of the effect:
 
 | Detail | Why it matters |
 | --- | --- |
+| **The snout is a volume** | A sphere set in front of the skull, painted under the head so its own fill hides all but the protruding bump. Square-on it is invisible; on a turn it breaks the silhouette ahead of the cheek. A silhouette that changes *shape* is the clearest evidence the head is solid, and it is what separates a head from a ball with a face on it. |
+| **Muzzle features ride the snout** | Nose, mouth, pads and whisker roots are lifted off the skull, so they swing ahead of the face on a turn instead of sliding across it. |
+| **Rim light and contact shadow** | A ribbon down the lit edge of the head, tapering to nothing at both ends because a stroke cannot fade along its length; and the head's shadow on the chest, painted under the skull so only a crescent survives. |
 | **Pupils on a lifted sphere** | Drawn at radius `1 + lift`, so they parallax against the eye whites on a turn. Strongest depth cue on the face. |
 | **Fur sheen as sphere arcs** | Sampled along the surface and split wherever they round out of sight. Light wrapping the skull proves it is a volume. |
 | **Sheen behind the ear** | Culled entirely head-on. It only ever appears on a hard turn, which is the payoff. |
@@ -53,6 +56,13 @@ documented in the code:
 - **Ear bases sit forward on the skull.** A base ridge running front-to-back
   lands near the limb, where a turn foreshortens it to nothing and the far ear
   disappears.
+- **The head outline and the snout must wind the same way.** They share a clip
+  path, and under the non-zero fill rule opposite windings subtract instead of
+  union — punching a hole through the face exactly where the muzzle sits.
+- **Things that round away shrink; they do not fade.** The far eye takes its
+  height down with its width, or it becomes a tall sliver sliced flat by the
+  silhouette. The inner ear shrinks toward the ear's centroid, because orange at
+  partial opacity over black fur goes muddy brown and reads as dirt.
 
 ## Layout
 

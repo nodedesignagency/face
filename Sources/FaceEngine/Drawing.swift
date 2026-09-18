@@ -23,6 +23,10 @@ public enum Paint: String, Hashable, Sendable, CaseIterable {
     case whisker
     /// Sheen wrapping the skull. Not tabby stripes — light grazing dark fur.
     case marking
+    /// The rim light down the lit edge of the head.
+    case sheen
+    /// The head's shadow falling on the chest. Darker than the coat.
+    case shadow
     /// Soft detail: the mouth and the whisker-pad dots.
     case shade
     /// Construction lines, only visible when the rig overlay is on.

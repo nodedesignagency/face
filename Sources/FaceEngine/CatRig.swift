@@ -49,6 +49,20 @@ public struct CatProportions: Sendable {
     public var muzzleLongitude = 0.215
     public var muzzleLatitude = -0.380
 
+    /// The snout, as a sphere sitting in front of the skull.
+    ///
+    /// This is the difference between a head and a ball with a face painted on
+    /// it. Square-on the snout hides inside the head's own outline; on a turn it
+    /// breaks the silhouette ahead of the cheek, and a silhouette that changes
+    /// shape is the clearest evidence the head is solid.
+    public var muzzleForward = 1.00
+    public var muzzleDrop = -0.30
+    public var muzzleRadius = 0.32
+    public var muzzleWidth = 1.15
+    /// How far the nose, mouth and whisker pads ride in front of the skull, so
+    /// they swing ahead of the face on a turn instead of sliding across it.
+    public var muzzleLift = 0.30
+
     public var outlineWidth = 0.026
     public var featureWidth = 0.030
     public var detailWidth = 0.022
@@ -96,24 +110,46 @@ public struct CatRig: Sendable {
         )
         let projector = Projector(pose: state.pose, head: head, center: center)
 
-        let outline = Spline.closedLoop(headOutlinePoints(projector, state: state))
+        let outlinePoints = headOutlinePoints(projector, state: state)
+        let outline = Spline.closedLoop(outlinePoints)
+        let snout = snoutSilhouette(projector)
+        let rim = weight(proportions.outlineWidth, 1)
 
         var shapes: [Shape2D] = []
         shapes.append(contentsOf: body(state: state, center: center))
+
+        // The head's shadow on the chest. Painted before the head, so the skull
+        // covers its top and what survives is a crescent under the chin — and
+        // because it tracks the head's own centre, it slides as the head turns.
+        let headBottom = outlinePoints.map(\.y).max() ?? center.y
+        var contact = PathBuilder()
+        contact.ellipse(
+            center: Point2(center.x, headBottom - radius * 0.05),
+            rx: radius * 0.52,
+            ry: radius * 0.17
+        )
+        shapes.append(Shape2D(commands: contact.commands, style: .filled(.shadow, opacity: 0.55)))
 
         let whiskers = whiskerShapes(projector, state: state)
         shapes.append(contentsOf: whiskers.behind)
         shapes.append(contentsOf: crownHairs(projector))
         shapes.append(contentsOf: ears(projector))
+
+        // The snout goes under the head, so the skull's own fill hides the part
+        // of it that is inside the outline and only the protruding bump shows.
+        // Where the outline crosses the bump, the head's rim reads as the seam
+        // between cheek and snout.
         shapes.append(
-            Shape2D(
-                commands: outline,
-                style: .outlined(
-                    fill: .fur, stroke: .ink, width: weight(proportions.outlineWidth, 1)
-                )
-            )
+            Shape2D(commands: snout, style: .outlined(fill: .fur, stroke: .ink, width: rim))
         )
-        // Everything from here to the whiskers is painted on the skull, so it
+        shapes.append(
+            Shape2D(commands: outline, style: .outlined(fill: .fur, stroke: .ink, width: rim))
+        )
+        if let sheen = rimLight(outlinePoints, center: projector.center) {
+            shapes.append(sheen)
+        }
+
+        // Everything from here to the whiskers is painted on the head, so it
         // gets cut off at the silhouette rather than floating past it.
         shapes.append(contentsOf: markings(projector).map { $0.clippedToHead() })
         shapes.append(contentsOf: eyes(projector, state: state).map { $0.clippedToHead() })
@@ -127,7 +163,9 @@ public struct CatRig: Sendable {
         return FaceDrawing(
             size: canvas,
             shapes: shapes.filter { !$0.isEmpty },
-            headOutline: outline
+            // Two subpaths, unioned by the non-zero fill rule: the muzzle
+            // features ride out past the skull and must not be cut off at it.
+            headOutline: outline + snout
         )
     }
 
@@ -200,6 +238,75 @@ public struct CatRig: Sendable {
         }
     }
 
+    // MARK: - Snout
+
+    /// The projected outline of the snout sphere.
+    ///
+    /// A sphere's silhouette under perspective is a circle slightly larger than
+    /// its radius would suggest — `a·f / √(D² − a²)` rather than `a·f / D` —
+    /// and at this size the difference is visible, so it is worth being exact.
+    private func snoutSilhouette(_ projector: Projector) -> [PathCommand] {
+        let centre = Vec3(0, proportions.muzzleDrop, proportions.muzzleForward)
+        let anchor = projector.project(centre)
+        let depth = projector.rotate(centre).z
+
+        let a = proportions.muzzleRadius
+        let distance = head.focalLength - depth
+        let projected = a * head.focalLength
+            / max((distance * distance - a * a).squareRoot(), 0.001)
+            * radius
+
+        // Sampled rather than built with `PathBuilder.ellipse`, so it winds the
+        // same way as the head outline. The two share a clip path, and under the
+        // non-zero fill rule opposite windings would subtract instead of union —
+        // punching a hole through the face exactly where the muzzle sits.
+        let rx = projected * proportions.muzzleWidth
+        let ry = projected
+        let samples = 48
+        let points = (0..<samples).map { index -> Point2 in
+            let theta = 2 * .pi * Double(index) / Double(samples)
+            return Point2(
+                anchor.position.x + rx * cos(theta),
+                anchor.position.y - ry * sin(theta)
+            )
+        }
+        return Spline.closedLoop(points)
+    }
+
+    // MARK: - Rim light
+
+    /// A light edge down the lit side of the head.
+    ///
+    /// Built as a ribbon tapering to nothing at both ends: a stroke cannot fade
+    /// along its length, and an arc with hard ends reads as a scratch. The light
+    /// sits up and to the left, matching the catchlights in the eyes, so as the
+    /// head turns the rim stays put and the silhouette slides under it.
+    private func rimLight(_ outline: [Point2], center: Point2) -> Shape2D? {
+        guard outline.count > 8 else { return nil }
+        let first = Int(Double(outline.count) * 0.21)   // ~75°, just past the crown
+        let last = Int(Double(outline.count) * 0.55)    // ~198°, down the far cheek
+        guard last > first + 2, last < outline.count else { return nil }
+
+        let arc = Array(outline[first...last])
+        let maxWidth = radius * 0.055
+
+        let inner = arc.enumerated().map { index, point -> Point2 in
+            let t = Double(index) / Double(arc.count - 1)
+            let width = maxWidth * sin(t * .pi)
+            let dx = point.x - center.x
+            let dy = point.y - center.y
+            let length = (dx * dx + dy * dy).squareRoot()
+            guard length > 1e-9 else { return point }
+            let scale = max(length - width, 0) / length
+            return Point2(center.x + dx * scale, center.y + dy * scale)
+        }
+
+        return Shape2D(
+            commands: Spline.closedLoop(arc + inner.reversed()),
+            style: .filled(.sheen, opacity: 0.30)
+        )
+    }
+
     // MARK: - Ears
 
     /// The three head-space corners of one ear, plus the direction its opening
@@ -261,12 +368,15 @@ public struct CatRig: Sendable {
                 )
             )
 
-            // Inner ear, shrunk toward the ear's centroid and lifted out of the
-            // ear plane so it disappears as the ear turns away.
-            let innerVisibility = smoothstep(-0.05, 0.34, facing)
-            if innerVisibility > 0.01 {
+            // Inner ear. As the ear turns away this *shrinks* toward the ear's
+            // centroid rather than fading: orange at partial opacity over black
+            // fur goes muddy brown, which reads as dirt on the ear instead of an
+            // ear rotating. Opacity only takes over for the last of it.
+            let turn = smoothstep(0.02, 0.44, facing)
+            let innerVisibility = min(1, turn * 2.2)
+            if turn > 0.02 {
                 let centroid = (ear.front + ear.back + ear.tip) * (1.0 / 3.0)
-                let shrink = 0.62
+                let shrink = 0.62 * turn
                 let lift = ear.opening * 0.05
                 let iFront = centroid.lerp(to: ear.front, shrink) + lift
                 let iBack = centroid.lerp(to: ear.back, shrink) + lift
@@ -342,6 +452,17 @@ public struct CatRig: Sendable {
             let frame = projector.tangentFrame(lon: lon, lat: lat)
             let visibility = frame.visibility()
             guard visibility > 0.01 else { continue }
+
+            // Shrink the whole eye as it rounds away, not just the width the
+            // projection already foreshortens. Left to itself the far eye turns
+            // into a tall narrow ellipse pressed against the rim and gets sliced
+            // flat by the silhouette — a smear rather than an eye. Taking the
+            // height down with the width keeps it inside the outline and reads
+            // as an eye that is simply further away.
+            let recede = min(1, 0.55 + 0.50 * clamp(frame.facing, 0, 1))
+            let eyeR = eyeR * recede
+            let pupilW = pupilW * recede
+            let pupilH = pupilH * recede
 
             if openness > 0.02 {
                 // No outline: against black fur the amber *is* the eye.
@@ -420,17 +541,35 @@ public struct CatRig: Sendable {
     private func muzzle(_ projector: Projector, state: FaceState) -> [Shape2D] {
         var shapes: [Shape2D] = []
 
-        // Nose: a soft downward triangle.
-        let noseFrame = projector.tangentFrame(lon: 0, lat: proportions.noseLatitude)
+        // Nose: a soft downward triangle, riding out on the snout.
+        let lift = proportions.muzzleLift
+        let noseFrame = projector.tangentFrame(
+            lon: 0, lat: proportions.noseLatitude, lift: lift
+        )
         let noseVisibility = noseFrame.visibility()
         if noseVisibility > 0.01 {
+            // A cat's nose is wider than it is tall: a broad, barely domed top
+            // and two sides falling to a small rounded tip. Built taller than
+            // wide it just reads as a blob.
+            // All three corners rounded. A cat's nose is a soft triangle — sharp
+            // top corners and a needle tip turn it into a kite.
             let w = 0.088 * radius
-            let h = 0.068 * radius
+            let h = 0.075 * radius
+            let top = -h * 0.55
             var nose = PathBuilder()
-            nose.move(Point2(-w, -h * 0.5))
-            nose.quad(Point2(0, -h * 1.15), Point2(w, -h * 0.5))
-            nose.quad(Point2(w * 0.72, h * 0.42), Point2(0, h))
-            nose.quad(Point2(-w * 0.72, h * 0.42), Point2(-w, -h * 0.5))
+            nose.move(Point2(-w * 0.72, top))
+            nose.quad(Point2(0, top - h * 0.22), Point2(w * 0.72, top))
+            nose.cubic(
+                Point2(w * 1.02, top + h * 0.10),
+                Point2(w * 0.70, h * 0.38),
+                Point2(w * 0.26, h * 0.86)
+            )
+            nose.quad(Point2(0, h * 1.10), Point2(-w * 0.26, h * 0.86))
+            nose.cubic(
+                Point2(-w * 0.70, h * 0.38),
+                Point2(-w * 1.02, top + h * 0.10),
+                Point2(-w * 0.72, top)
+            )
             nose.close()
             shapes.append(
                 Shape2D(
@@ -441,14 +580,30 @@ public struct CatRig: Sendable {
         }
 
         // Mouth: the cat's ω, hanging off a short philtrum.
-        let mouthFrame = projector.tangentFrame(lon: 0, lat: proportions.mouthLatitude)
+        let mouthFrame = projector.tangentFrame(
+            lon: 0, lat: proportions.mouthLatitude, lift: lift * 0.75
+        )
         let mouthVisibility = mouthFrame.visibility()
         if mouthVisibility > 0.01 {
-            let w = 0.125 * radius
-            let d = 0.082 * radius
+            let w = 0.110 * radius
+            let d = 0.072 * radius
+            // The philtrum is drawn thinner and separately. At the mouth's own
+            // weight it fuses with the nose above into one stalk.
+            var philtrum = PathBuilder()
+            philtrum.move(Point2(0, -0.048 * radius))
+            philtrum.line(.zero)
+            shapes.append(
+                Shape2D(
+                    commands: PathBuilder.transformed(philtrum.commands, by: mouthFrame.transform),
+                    style: .stroked(
+                        .shade,
+                        width: weight(proportions.detailWidth * 0.85, mouthFrame.scale),
+                        opacity: mouthVisibility * 0.8
+                    )
+                )
+            )
+
             var mouth = PathBuilder()
-            mouth.move(Point2(0, -0.055 * radius))
-            mouth.line(.zero)
             mouth.move(.zero)
             mouth.cubic(Point2(-w * 0.12, d), Point2(-w * 0.82, d), Point2(-w, -d * 0.12))
             mouth.move(.zero)
@@ -458,7 +613,7 @@ public struct CatRig: Sendable {
                     commands: PathBuilder.transformed(mouth.commands, by: mouthFrame.transform),
                     style: .stroked(
                         .shade,
-                        width: weight(proportions.featureWidth, mouthFrame.scale),
+                        width: weight(proportions.featureWidth * 0.88, mouthFrame.scale),
                         opacity: mouthVisibility * 0.9
                     )
                 )
@@ -469,7 +624,8 @@ public struct CatRig: Sendable {
         for side in [-1.0, 1.0] {
             let frame = projector.tangentFrame(
                 lon: side * proportions.muzzleLongitude,
-                lat: proportions.muzzleLatitude
+                lat: proportions.muzzleLatitude,
+                lift: lift * 0.8
             )
             let visibility = frame.visibility()
             guard visibility > 0.01 else { continue }
@@ -528,7 +684,10 @@ public struct CatRig: Sendable {
             for whisker in layout {
                 let lon = side * (0.360 + whisker.lonOffset)
                 let lat = whisker.lat
+                // Whiskers grow from the pads, which sit on the snout, so their
+                // roots ride out in front of the skull with it.
                 let root = Vec3.onSphere(lon: lon, lat: lat)
+                    * (1 + proportions.muzzleLift * 0.7)
                 let east = Vec3.east(lon: lon)
                 let north = Vec3.north(lon: lon, lat: lat)
 
@@ -623,26 +782,22 @@ public struct CatRig: Sendable {
         // Sheen over the crown. A black cat has no tabby "M" to draw, but the
         // wrap-around cue those stripes provided is worth keeping, so the same
         // arcs survive as light grazing the top of the skull.
-        stripe(from: (-0.560, 0.700), to: (-0.260, 0.980), bow: 0.03, width: detail, opacity: 0.6)
-        stripe(from: (0.560, 0.700), to: (0.260, 0.980), bow: 0.03, width: detail, opacity: 0.6)
+        stripe(from: (-0.560, 0.700), to: (-0.260, 0.980), bow: 0.03, width: detail, opacity: 0.30)
+        stripe(from: (0.560, 0.700), to: (0.260, 0.980), bow: 0.03, width: detail, opacity: 0.30)
 
         // Temple and shoulder stripes, wrapping the sides of the skull. They
         // ride near the rim, so they scroll into and out of view on a turn —
         // more convincing than anything drawn on the front of the face.
         for side in [-1.0, 1.0] {
             stripe(
-                from: (side * 0.950, 0.540), to: (side * 1.010, 0.160),
-                bow: 0.03, width: detail
-            )
-            stripe(
-                from: (side * 1.220, 0.480), to: (side * 1.280, 0.100),
-                bow: 0.03, width: detail
+                from: (side * 0.980, 0.520), to: (side * 1.040, 0.180),
+                bow: 0.03, width: detail, opacity: 0.55
             )
             // Behind the ear — only ever visible on a hard turn, which is
             // exactly when the illusion needs the payoff.
             stripe(
-                from: (side * 1.490, 0.420), to: (side * 1.550, 0.060),
-                bow: 0.03, width: detail
+                from: (side * 1.420, 0.440), to: (side * 1.480, 0.100),
+                bow: 0.03, width: detail, opacity: 0.55
             )
         }
 
