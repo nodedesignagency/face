@@ -57,28 +57,32 @@ final class RigTests: XCTestCase {
 
     func testTheHeadIsPaintedOverTheEarsAndUnderTheFace() {
         let drawing = rig.draw(FaceState())
-        let filled = drawing.shapes.enumerated().filter { $0.element.style.fill == .paper }
-        // Body, two ears and the head all fill with paper; the head is the last
-        // of them, so the ear bases disappear into the skull.
-        XCTAssertGreaterThanOrEqual(filled.count, 4)
+        let coat = drawing.shapes.enumerated().filter { $0.element.style.fill == .fur }
+        // Body, two ears and the head all fill with the coat colour; the head is
+        // the last of them, so the ear bases disappear into the skull.
+        XCTAssertGreaterThanOrEqual(coat.count, 4)
 
-        let inkStrokes = drawing.shapes.enumerated().filter {
-            $0.element.style.stroke == .ink && $0.element.style.fill == nil
+        let lastCoatFill = coat.map(\.offset).max() ?? 0
+        let faceDetail = drawing.shapes.enumerated().filter {
+            $0.element.clipsToHead && $0.offset > lastCoatFill
         }
-        let lastPaperFill = filled.map(\.offset).max() ?? 0
-        let faceLines = inkStrokes.map(\.offset).filter { $0 > lastPaperFill }
-        XCTAssertFalse(faceLines.isEmpty, "face detail must be drawn after the head fill")
+        XCTAssertFalse(faceDetail.isEmpty, "face detail must be drawn after the head fill")
     }
 
     func testBlinkReplacesTheOpenEyeWithALid() {
         let open = rig.draw(FaceState(blink: 0))
         let shut = rig.draw(FaceState(blink: 1))
 
-        // The pupils and their glints are gone once the lids are down.
-        let openInkFills = open.shapes.filter { $0.style.fill == .ink }.count
-        let shutInkFills = shut.shapes.filter { $0.style.fill == .ink }.count
-        XCTAssertGreaterThan(openInkFills, shutInkFills)
-        XCTAssertFalse(shut.shapes.isEmpty)
+        // Irises, pupils and catchlights are all gone once the lids are down.
+        XCTAssertEqual(open.shapes.filter { $0.style.fill == .iris }.count, 2)
+        XCTAssertEqual(open.shapes.filter { $0.style.fill == .pupil }.count, 2)
+        XCTAssertTrue(shut.shapes.allSatisfy { $0.style.fill != .iris && $0.style.fill != .pupil })
+
+        // A shut eye would vanish into a black coat, so each one gains a lid arc
+        // drawn in the whisker tone.
+        let openHairs = open.shapes.filter { $0.style.stroke == .whisker }.count
+        let shutHairs = shut.shapes.filter { $0.style.stroke == .whisker }.count
+        XCTAssertEqual(shutHairs, openHairs + 2)
     }
 
     func testRigOverlayOnlyAppearsWhenAsked() {
@@ -142,7 +146,7 @@ final class RigTests: XCTestCase {
         let clipped = drawing.shapes.filter(\.clipsToHead)
         XCTAssertGreaterThan(clipped.count, 5)
         // The head fill, the ears, the whiskers and the body are not.
-        XCTAssertTrue(drawing.shapes.contains { !$0.clipsToHead && $0.style.fill == .paper })
+        XCTAssertTrue(drawing.shapes.contains { !$0.clipsToHead && $0.style.fill == .fur })
     }
 
     func testFeaturesTravelWithTheHeadTurn() {

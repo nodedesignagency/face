@@ -30,25 +30,29 @@ public struct FaceState: Sendable {
 /// Proportions and line weights. Every length is a fraction of the head radius,
 /// so the face is resolution independent.
 public struct CatProportions: Sendable {
-    public var eyeLongitude = 0.455
-    public var eyeLatitude = 0.045
-    public var eyeRadius = 0.195
-    public var pupilRadius = 0.105
+    /// Eyes this size, set this close, are most of the character. They crowd
+    /// the muzzle down the face, which is why the nose and mouth sit lower here
+    /// than anatomy alone would put them.
+    public var eyeLongitude = 0.440
+    public var eyeLatitude = 0.090
+    public var eyeRadius = 0.330
+    public var pupilWidth = 0.208
+    public var pupilHeight = 0.240
     /// Floats the pupils off the surface. This is what makes them slide across
-    /// the eye whites as the head turns. Perspective means any lift also nudges
-    /// the pupil outward at rest, so keep it small enough that the resting eye
+    /// the iris as the head turns. Perspective means any lift also nudges the
+    /// pupil outward at rest, so keep it small enough that the resting eye
     /// still reads as centred.
     public var pupilLift = 0.025
 
-    public var noseLatitude = -0.215
-    public var mouthLatitude = -0.330
+    public var noseLatitude = -0.270
+    public var mouthLatitude = -0.400
     public var muzzleLongitude = 0.215
-    public var muzzleLatitude = -0.300
+    public var muzzleLatitude = -0.380
 
-    public var outlineWidth = 0.052
-    public var featureWidth = 0.042
-    public var detailWidth = 0.026
-    public var whiskerWidth = 0.021
+    public var outlineWidth = 0.026
+    public var featureWidth = 0.030
+    public var detailWidth = 0.022
+    public var whiskerWidth = 0.018
 
     public init() {}
 }
@@ -67,9 +71,9 @@ public struct CatRig: Sendable {
     public var headCenter: Point2
 
     public init(
-        canvas: Point2 = Point2(520, 620),
+        canvas: Point2 = Point2(520, 700),
         headCenter: Point2 = Point2(260, 255),
-        radius: Double = 162,
+        radius: Double = 140,
         proportions: CatProportions = CatProportions()
     ) {
         self.canvas = canvas
@@ -99,12 +103,13 @@ public struct CatRig: Sendable {
 
         let whiskers = whiskerShapes(projector, state: state)
         shapes.append(contentsOf: whiskers.behind)
+        shapes.append(contentsOf: crownHairs(projector))
         shapes.append(contentsOf: ears(projector))
         shapes.append(
             Shape2D(
                 commands: outline,
                 style: .outlined(
-                    fill: .paper, stroke: .ink, width: weight(proportions.outlineWidth, 1)
+                    fill: .fur, stroke: .ink, width: weight(proportions.outlineWidth, 1)
                 )
             )
         )
@@ -138,19 +143,21 @@ public struct CatRig: Sendable {
     /// frame: 0 is the viewer's right, π/2 is the crown, -π/2 the chin.
     private func headProfile(_ theta: Double, yaw: Double) -> Double {
         var r = 1.0
-        r -= 0.020 * window(theta, center: .pi / 2, width: 0.95)   // flatter crown
-        r -= 0.045 * window(theta, center: -.pi / 2, width: 1.05)  // narrower chin
+        r -= 0.055 * window(theta, center: .pi / 2, width: 0.85)   // flat crown between the ears
+        r -= 0.050 * window(theta, center: -.pi / 2, width: 0.95)  // jaw tapers in
 
-        // Broad cheeks. Widening the sides rather than squashing the crown is
-        // what keeps every feature inside the outline.
-        r += 0.045 * window(theta, center: 0, width: 0.95)
-        r += 0.045 * window(theta, center: .pi, width: 0.95)
+        // Cheeks. A cat's widest point is below the eyes, not at the equator —
+        // putting the bulge there is most of what stops the head reading as a
+        // circle. Widening is also the only safe direction: pulling the outline
+        // inward would let features off the unit sphere escape it.
+        r += 0.130 * window(theta, center: -0.30, width: 1.05)
+        r += 0.130 * window(theta, center: .pi + 0.30, width: 1.05)
 
         // Cheek ruff. Drifting the tufts against the yaw makes the fur read as
         // wrapping around a solid head instead of being painted on a disc.
         let drift = -yaw * 0.20
-        r += ruff(theta, center: -0.62 + drift)
-        r += ruff(theta, center: .pi + 0.62 + drift)
+        r += ruff(theta, center: -0.72 + drift)
+        r += ruff(theta, center: .pi + 0.72 + drift)
         return r
     }
 
@@ -248,7 +255,7 @@ public struct CatRig: Sendable {
                 Shape2D(
                     commands: outer.commands,
                     style: .outlined(
-                        fill: .paper, stroke: .ink,
+                        fill: .fur, stroke: .ink,
                         width: weight(proportions.outlineWidth, projector.project(ear.tip).scale)
                     )
                 )
@@ -259,7 +266,7 @@ public struct CatRig: Sendable {
             let innerVisibility = smoothstep(-0.05, 0.34, facing)
             if innerVisibility > 0.01 {
                 let centroid = (ear.front + ear.back + ear.tip) * (1.0 / 3.0)
-                let shrink = 0.56
+                let shrink = 0.62
                 let lift = ear.opening * 0.05
                 let iFront = centroid.lerp(to: ear.front, shrink) + lift
                 let iBack = centroid.lerp(to: ear.back, shrink) + lift
@@ -277,8 +284,39 @@ public struct CatRig: Sendable {
                 )
                 inner.close()
                 shapes.append(
-                    Shape2D(commands: inner.commands, style: .filled(.blush, opacity: innerVisibility))
+                    Shape2D(
+                        commands: inner.commands,
+                        style: .filled(.innerEar, opacity: innerVisibility)
+                    )
                 )
+            }
+
+            // Tufts along the ear's front edge. Cheap, and they stop the ear
+            // reading as a flat cut-out triangle.
+            let centroid = (ear.front + ear.back + ear.tip) * (1.0 / 3.0)
+            let tuftVisibility = smoothstep(-0.30, 0.10, facing)
+            if tuftVisibility > 0.01 {
+                // Roots stay low on the edge. Higher up, "away from the centroid"
+                // points straight up and the tuft shoots past the ear tip.
+                for (index, t) in [0.16, 0.34, 0.52].enumerated() {
+                    let root = ear.front.lerp(to: ear.tip, t)
+                    let outward = (root - centroid).normalized
+                    let length = [0.085, 0.100, 0.080][index]
+                    let tip = root + outward * length + Vec3(0, 0.025, 0)
+                    var tuft = PathBuilder()
+                    tuft.move(projector.project(root).position)
+                    tuft.line(projector.project(tip).position)
+                    shapes.append(
+                        Shape2D(
+                            commands: tuft.commands,
+                            style: .stroked(
+                                .whisker,
+                                width: weight(proportions.whiskerWidth, 1),
+                                opacity: tuftVisibility * 0.75
+                            )
+                        )
+                    )
+                }
             }
 
             result.append((projector.rotate(ear.tip).z, shapes))
@@ -295,7 +333,8 @@ public struct CatRig: Sendable {
         let openness = clamp(1 - state.blink, 0, 1)
         let lidMix = smoothstep(0.34, 0.06, openness)
         let eyeR = proportions.eyeRadius * radius
-        let pupilR = proportions.pupilRadius * radius
+        let pupilW = proportions.pupilWidth * radius
+        let pupilH = proportions.pupilHeight * radius
 
         for side in [-1.0, 1.0] {
             let lon = side * proportions.eyeLongitude
@@ -305,64 +344,69 @@ public struct CatRig: Sendable {
             guard visibility > 0.01 else { continue }
 
             if openness > 0.02 {
-                var eye = PathBuilder()
-                eye.ellipse(center: .zero, rx: eyeR, ry: eyeR * openness)
+                // No outline: against black fur the amber *is* the eye.
+                var iris = PathBuilder()
+                iris.ellipse(center: .zero, rx: eyeR, ry: eyeR * openness)
                 shapes.append(
                     Shape2D(
-                        commands: PathBuilder.transformed(eye.commands, by: frame.transform),
-                        style: .outlined(
-                            fill: .paper, stroke: .ink,
-                            width: weight(proportions.featureWidth, frame.scale),
-                            opacity: visibility
-                        )
+                        commands: PathBuilder.transformed(iris.commands, by: frame.transform),
+                        style: .filled(.iris, opacity: visibility)
                     )
                 )
 
                 // The pupil rides a slightly larger sphere, so it drifts against
-                // the eye white as the head turns — cheap, and it is the single
-                // strongest depth cue on the face.
+                // the iris as the head turns — cheap, and the single strongest
+                // depth cue on the face.
                 let pupilFrame = projector.tangentFrame(
                     lon: lon, lat: lat, lift: proportions.pupilLift
                 )
                 let gaze = Point2(
-                    state.gaze.x * eyeR * 0.26,
-                    state.gaze.y * eyeR * 0.22
+                    state.gaze.x * eyeR * 0.20,
+                    state.gaze.y * eyeR * 0.16
                 )
                 var pupil = PathBuilder()
-                pupil.ellipse(center: gaze, rx: pupilR, ry: pupilR * openness)
+                pupil.ellipse(center: gaze, rx: pupilW, ry: pupilH * openness)
                 shapes.append(
                     Shape2D(
                         commands: PathBuilder.transformed(pupil.commands, by: pupilFrame.transform),
-                        style: .filled(.ink, opacity: visibility * openness)
+                        style: .filled(.pupil, opacity: visibility * openness)
                     )
                 )
 
+                // Catchlights are offset the same way in both eyes rather than
+                // mirrored — they come from one light, up and to the left.
                 var glint = PathBuilder()
-                let glintR = pupilR * 0.30
+                let bigR = pupilW * 0.36
                 glint.ellipse(
-                    center: Point2(gaze.x - pupilR * 0.26, gaze.y - pupilR * 0.28),
-                    rx: glintR, ry: glintR * openness
+                    center: Point2(gaze.x - pupilW * 0.34, gaze.y - pupilH * 0.40),
+                    rx: bigR, ry: bigR * openness
+                )
+                let smallR = pupilW * 0.11
+                glint.ellipse(
+                    center: Point2(gaze.x + pupilW * 0.36, gaze.y + pupilH * 0.34),
+                    rx: smallR, ry: smallR * openness
                 )
                 shapes.append(
                     Shape2D(
                         commands: PathBuilder.transformed(glint.commands, by: pupilFrame.transform),
-                        style: .filled(.paper, opacity: visibility * openness)
+                        style: .filled(.glint, opacity: visibility * openness)
                     )
                 )
             }
 
             if lidMix > 0.01 {
-                // A closed cat eye is a contented upward arc, not a flat line.
+                // A shut eye on a black cat would vanish into the coat, so the
+                // lid is drawn in the whisker tone: a contented upward arc.
                 var lid = PathBuilder()
-                lid.move(Point2(-eyeR, 0))
-                lid.quad(Point2(0, -eyeR * 0.62), Point2(eyeR, 0))
+                lid.move(Point2(-eyeR * 0.85, 0))
+                lid.quad(Point2(0, -eyeR * 0.55), Point2(eyeR * 0.85, 0))
                 shapes.append(
                     Shape2D(
                         commands: PathBuilder.transformed(lid.commands, by: frame.transform),
                         style: .stroked(
-                            .ink,
+                            .whisker,
                             width: weight(proportions.featureWidth, frame.scale),
-                            opacity: visibility * lidMix
+                            opacity: visibility * lidMix * 0.8
                         )
                     )
                 )
@@ -391,11 +435,7 @@ public struct CatRig: Sendable {
             shapes.append(
                 Shape2D(
                     commands: PathBuilder.transformed(nose.commands, by: noseFrame.transform),
-                    style: .outlined(
-                        fill: .blush, stroke: .ink,
-                        width: weight(proportions.detailWidth, noseFrame.scale),
-                        opacity: noseVisibility
-                    )
+                    style: .filled(.nose, opacity: noseVisibility)
                 )
             )
         }
@@ -417,9 +457,9 @@ public struct CatRig: Sendable {
                 Shape2D(
                     commands: PathBuilder.transformed(mouth.commands, by: mouthFrame.transform),
                     style: .stroked(
-                        .ink,
+                        .shade,
                         width: weight(proportions.featureWidth, mouthFrame.scale),
-                        opacity: mouthVisibility
+                        opacity: mouthVisibility * 0.9
                     )
                 )
             )
@@ -514,9 +554,9 @@ public struct CatRig: Sendable {
                 let shape = Shape2D(
                     commands: path.commands,
                     style: .stroked(
-                        .ink,
+                        .whisker,
                         width: weight(proportions.whiskerWidth, projector.project(root).scale),
-                        opacity: visibility * 0.9
+                        opacity: visibility * 0.85
                     )
                 )
 
@@ -580,10 +620,11 @@ public struct CatRig: Sendable {
 
         let detail = weight(proportions.detailWidth, 1)
 
-        // Forehead: the tabby "M".
-        stripe(from: (-0.330, 0.380), to: (-0.145, 0.760), bow: 0.03, width: detail)
-        stripe(from: (0.000, 0.430), to: (0.000, 0.820), width: detail)
-        stripe(from: (0.330, 0.380), to: (0.145, 0.760), bow: 0.03, width: detail)
+        // Sheen over the crown. A black cat has no tabby "M" to draw, but the
+        // wrap-around cue those stripes provided is worth keeping, so the same
+        // arcs survive as light grazing the top of the skull.
+        stripe(from: (-0.560, 0.700), to: (-0.260, 0.980), bow: 0.03, width: detail, opacity: 0.6)
+        stripe(from: (0.560, 0.700), to: (0.260, 0.980), bow: 0.03, width: detail, opacity: 0.6)
 
         // Temple and shoulder stripes, wrapping the sides of the skull. They
         // ride near the rim, so they scroll into and out of view on a turn —
@@ -614,63 +655,166 @@ public struct CatRig: Sendable {
         // The body lags the head, so a turn reads as the neck twisting.
         let drift = -sin(state.pose.yaw) * radius * 0.075
         let cx = headCenter.x + drift
-        let shoulderY = headCenter.y + radius * 0.98 + state.breath * radius * 0.008
-        let halfWidth = radius * 1.05
-        let neckHalf = radius * 0.34
-        let bottom = canvas.y + radius * 0.2
+        let rim = weight(proportions.outlineWidth, 1)
 
-        var path = PathBuilder()
-        path.move(Point2(cx - halfWidth, bottom))
-        path.line(Point2(cx - halfWidth, shoulderY + radius * 0.34))
-        path.cubic(
-            Point2(cx - halfWidth, shoulderY + radius * 0.02),
-            Point2(cx - neckHalf - radius * 0.24, shoulderY - radius * 0.20),
-            Point2(cx - neckHalf, shoulderY - radius * 0.30)
-        )
-        path.line(Point2(cx + neckHalf, shoulderY - radius * 0.30))
-        path.cubic(
-            Point2(cx + neckHalf + radius * 0.24, shoulderY - radius * 0.20),
-            Point2(cx + halfWidth, shoulderY + radius * 0.02),
-            Point2(cx + halfWidth, shoulderY + radius * 0.34)
-        )
-        path.line(Point2(cx + halfWidth, bottom))
-        path.close()
+        let topY = headCenter.y + radius * 0.80 + state.breath * radius * 0.010
+        let baseY = canvas.y - radius * 0.32
+        let topHalf = radius * 0.48
+        let baseHalf = radius * 0.86
+        let footY = baseY + radius * 0.14
 
-        var shapes = [
-            Shape2D(
-                commands: path.commands,
-                style: .outlined(
-                    fill: .paper, stroke: .ink, width: weight(proportions.outlineWidth, 1)
-                )
-            )
-        ]
+        var shapes: [Shape2D] = []
 
-        // Collar, bowed to sit on a round neck rather than a flat one.
-        let collarY = shoulderY + radius * 0.14
-        let collarHalf = neckHalf + radius * 0.13
-        var collar = PathBuilder()
-        collar.move(Point2(cx - collarHalf, collarY - radius * 0.045))
-        collar.quad(Point2(cx, collarY + radius * 0.075), Point2(cx + collarHalf, collarY - radius * 0.045))
+        // Tail, drawn first so its root is buried behind the chest and only the
+        // part clear of the silhouette reads — the same trick as the ears.
+        let sway = state.breath * radius * 0.05
         shapes.append(
             Shape2D(
-                commands: collar.commands,
-                style: .stroked(.accent, width: radius * 0.075, cap: .round)
+                commands: taperedShape(
+                    from: Point2(cx + baseHalf * 0.60, baseY - radius * 0.46),
+                    control: Point2(cx + baseHalf * 1.78, baseY - radius * 0.06 + sway),
+                    to: Point2(cx + baseHalf * 1.52, baseY - radius * 0.98 + sway),
+                    startHalfWidth: radius * 0.150,
+                    endHalfWidth: radius * 0.090
+                ),
+                style: .outlined(fill: .fur, stroke: .ink, width: rim)
             )
         )
 
-        var tag = PathBuilder()
-        let tagR = radius * 0.072
-        tag.ellipse(center: Point2(cx, collarY + radius * 0.115), rx: tagR, ry: tagR)
+        // Chest: narrow at the shoulders, flaring to a broad seated base.
+        var chest = PathBuilder()
+        chest.move(Point2(cx - topHalf, topY))
+        chest.cubic(
+            Point2(cx - topHalf - radius * 0.14, topY + radius * 0.60),
+            Point2(cx - baseHalf, baseY - radius * 0.70),
+            Point2(cx - baseHalf, baseY - radius * 0.16)
+        )
+        chest.cubic(
+            Point2(cx - baseHalf, footY),
+            Point2(cx - baseHalf * 0.74, footY),
+            Point2(cx - baseHalf * 0.48, footY)
+        )
+        chest.line(Point2(cx + baseHalf * 0.48, footY))
+        chest.cubic(
+            Point2(cx + baseHalf * 0.74, footY),
+            Point2(cx + baseHalf, footY),
+            Point2(cx + baseHalf, baseY - radius * 0.16)
+        )
+        chest.cubic(
+            Point2(cx + baseHalf, baseY - radius * 0.70),
+            Point2(cx + topHalf + radius * 0.14, topY + radius * 0.60),
+            Point2(cx + topHalf, topY)
+        )
+        chest.close()
         shapes.append(
-            Shape2D(
-                commands: tag.commands,
-                style: .outlined(
-                    fill: .accent, stroke: .ink, width: weight(proportions.detailWidth, 1)
+            Shape2D(commands: chest.commands, style: .outlined(fill: .fur, stroke: .ink, width: rim))
+        )
+
+        // Front paws only. On a seated cat the legs are swallowed by the chest,
+        // and drawing them as columns just reads as two rectangles stuck on.
+        let pawHalfWidth = radius * 0.215
+        let pawHalfHeight = radius * 0.135
+        let pawY = footY - radius * 0.115
+        for side in [-1.0, 1.0] {
+            let px = cx + side * radius * 0.285
+            var paw = PathBuilder()
+            paw.ellipse(center: Point2(px, pawY), rx: pawHalfWidth, ry: pawHalfHeight)
+            shapes.append(
+                Shape2D(commands: paw.commands, style: .outlined(fill: .fur, stroke: .ink, width: rim))
+            )
+
+            var toes = PathBuilder()
+            for toe in [-0.36, 0.36] {
+                toes.move(Point2(px + pawHalfWidth * toe, pawY - pawHalfHeight * 0.10))
+                toes.line(Point2(px + pawHalfWidth * toe, pawY + pawHalfHeight * 0.74))
+            }
+            shapes.append(
+                Shape2D(
+                    commands: toes.commands,
+                    style: .stroked(.ink, width: weight(proportions.detailWidth, 1), opacity: 0.85)
                 )
             )
-        )
+        }
 
         return shapes
+    }
+
+    /// Outlines a quadratic spine whose width tapers along its length.
+    ///
+    /// The tail needs a fill and a rim like every other part of the cat, so it
+    /// cannot simply be a stroked line.
+    private func taperedShape(
+        from start: Point2,
+        control: Point2,
+        to end: Point2,
+        startHalfWidth: Double,
+        endHalfWidth: Double,
+        samples: Int = 18
+    ) -> [PathCommand] {
+        var near: [Point2] = []
+        var far: [Point2] = []
+
+        for index in 0...samples {
+            let t = Double(index) / Double(samples)
+            let mt = 1 - t
+            let point = Point2(
+                mt * mt * start.x + 2 * mt * t * control.x + t * t * end.x,
+                mt * mt * start.y + 2 * mt * t * control.y + t * t * end.y
+            )
+            let tangent = Point2(
+                2 * mt * (control.x - start.x) + 2 * t * (end.x - control.x),
+                2 * mt * (control.y - start.y) + 2 * t * (end.y - control.y)
+            )
+            let length = (tangent.x * tangent.x + tangent.y * tangent.y).squareRoot()
+            guard length > 1e-9 else { continue }
+            let normal = Point2(-tangent.y / length, tangent.x / length)
+            let halfWidth = startHalfWidth + (endHalfWidth - startHalfWidth) * t
+            near.append(Point2(point.x + normal.x * halfWidth, point.y + normal.y * halfWidth))
+            far.append(Point2(point.x - normal.x * halfWidth, point.y - normal.y * halfWidth))
+        }
+
+        return Spline.closedLoop(near + far.reversed())
+    }
+
+    // MARK: - Stray hairs
+
+    /// A few wisps off the crown, between the ears.
+    ///
+    /// Drawn behind the head like the ears, so their roots are buried and only
+    /// the part clearing the skull shows.
+    private func crownHairs(_ projector: Projector) -> [Shape2D] {
+        // Short, splayed and curved. Straight parallel hairs read as antennae.
+        let layout: [(lon: Double, lat: Double, lean: Double, length: Double)] = [
+            (-0.130, 1.320, -0.520, 0.105),
+            (-0.010, 1.390, -0.120, 0.130),
+            (0.115, 1.330, 0.420, 0.110),
+        ]
+
+        return layout.compactMap { hair in
+            let root = Vec3.onSphere(lon: hair.lon, lat: hair.lat)
+            let direction = (root + Vec3(hair.lean, 0.70, 0)).normalized
+            let tip = root + direction * hair.length
+            let control = root + direction * (hair.length * 0.55)
+                + Vec3(hair.lean * 0.10, -0.012, 0)
+
+            let visibility = smoothstep(-0.40, 0.05, projector.rotate(root).z)
+            guard visibility > 0.01 else { return nil }
+
+            var path = PathBuilder()
+            path.move(projector.project(root).position)
+            path.quad(
+                projector.project(control).position,
+                projector.project(tip).position
+            )
+            return Shape2D(
+                commands: path.commands,
+                style: .stroked(
+                    .whisker,
+                    width: weight(proportions.whiskerWidth, 1),
+                    opacity: visibility * 0.6
+                )
+            )
+        }
     }
 
     // MARK: - Rig overlay

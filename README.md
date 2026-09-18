@@ -1,9 +1,9 @@
 # Cat Face
 
-A vector cat whose face is drawn flat but rigged to a sphere, so turning its
-head slides, foreshortens and occludes every feature the way a real one would.
-Same trick as the Figma piece it is modelled on — the artwork never leaves 2D,
-the *anchors* do the work.
+A black cat with big amber eyes, sitting on a teal ground. Its face is drawn
+flat but rigged to a sphere, so turning its head slides, foreshortens and
+occludes every feature the way a real one would. Same trick as the Figma piece
+it is modelled on — the artwork never leaves 2D, the *anchors* do the work.
 
 Drag across the face (or tilt the device) and the head follows. Leave it alone
 and it looks around by itself, and blinks.
@@ -36,8 +36,8 @@ A few details carry most of the effect:
 | Detail | Why it matters |
 | --- | --- |
 | **Pupils on a lifted sphere** | Drawn at radius `1 + lift`, so they parallax against the eye whites on a turn. Strongest depth cue on the face. |
-| **Tabby stripes as sphere arcs** | Sampled along the surface and split wherever they round out of sight. Stripes wrapping the skull prove it is a volume. |
-| **Stripes behind the ear** | Culled entirely head-on. They only ever appear on a hard turn, which is the payoff. |
+| **Fur sheen as sphere arcs** | Sampled along the surface and split wherever they round out of sight. Light wrapping the skull proves it is a volume. |
+| **Sheen behind the ear** | Culled entirely head-on. It only ever appears on a hard turn, which is the payoff. |
 | **Clipping to the silhouette** | Near the rim a tangent frame flattens but never vanishes, so face detail is cut off at the head outline instead of hanging off it. |
 | **Ears solved in 3D** | Three head-space corners, not a tangent-plane decal, so they rotate rather than slide. |
 | **Whiskers leave the surface** | A root on the sphere plus a direction splaying outward and forward; ones rooted on the far side are painted *behind* the head. |
@@ -145,6 +145,12 @@ when Reduce Motion is on — the head you drive yourself still moves.
 ## Tuning
 
 Proportions live in `CatProportions`, pose limits in `PoseLimits`, and the
-palettes in `PaintTable`. The engine only ever names semantic paints (`ink`,
-`paper`, `blush`, `marking`, `shade`, `accent`, `guide`), so light mode, dark
-mode and SVG export all resolve from one table and cannot drift apart.
+palettes in `PaintTable`. The engine only ever names semantic paints (`fur`,
+`iris`, `pupil`, `glint`, `innerEar`, `nose`, `whisker`, `marking`, `shade`,
+`ink`, `guide`), so light mode, dark mode and SVG export all resolve from one
+table and cannot drift apart. Recolouring the cat is a change to that table
+alone — the rig never names a colour.
+
+The coat, the chest, the paws and the tail are all the same black, so the `ink`
+rim is the only thing separating them. It is a hair *lighter* than `fur`, read
+as light catching the edge of the fur rather than as an outline.

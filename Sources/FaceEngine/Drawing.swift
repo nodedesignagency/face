@@ -3,19 +3,28 @@ import Foundation
 /// A semantic colour role. The engine never names an actual colour, so the
 /// same drawing renders correctly in light mode, dark mode, or an SVG export.
 public enum Paint: String, Hashable, Sendable, CaseIterable {
-    /// Line work and solid black shapes.
+    /// The rim that separates the head from the body. On a black cat there is
+    /// no outline to speak of — this is a hair lighter than the coat, read as
+    /// light catching the edge of the fur.
     case ink
-    /// The fill inside the head — the "paper" showing through.
-    case paper
-    /// Warm pink for the nose and inner ears.
-    case blush
-    /// Tabby stripes. Softened just off the outline so the markings sit on the
-    /// face rather than competing with its edge.
+    /// The coat: head, ears and body.
+    case fur
+    /// The amber ring of the eye.
+    case iris
+    /// The pupil inside it.
+    case pupil
+    /// Catchlight.
+    case glint
+    /// Warm inner ear.
+    case innerEar
+    /// The nose.
+    case nose
+    /// Whiskers, ear tufts and the stray hairs off the crown.
+    case whisker
+    /// Sheen wrapping the skull. Not tabby stripes — light grazing dark fur.
     case marking
-    /// A muted tint for soft detail.
+    /// Soft detail: the mouth and the whisker-pad dots.
     case shade
-    /// The collar accent.
-    case accent
     /// Construction lines, only visible when the rig overlay is on.
     case guide
 }

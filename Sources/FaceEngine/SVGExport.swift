@@ -16,28 +16,38 @@ public struct PaintTable: Sendable {
 
     public static let light = PaintTable(
         values: [
-            .ink: "#1C1714",
-            .paper: "#FBF7F0",
-            .blush: "#F0A6A0",
-            .marking: "#3B322B",
-            .shade: "#8C837B",
-            .accent: "#E2725B",
-            .guide: "#4C8DF5",
+            .ink: "#34343F",
+            .fur: "#1B1B22",
+            .iris: "#F7C63E",
+            .pupil: "#141018",
+            .glint: "#FFFFFF",
+            .innerEar: "#E8913F",
+            .nose: "#57393E",
+            .whisker: "#F0E6D2",
+            .marking: "#3C3C49",
+            .shade: "#4E4E5B",
+            .guide: "#6FE3FF",
         ],
-        background: "#EFE7DA"
+        background: "#45A79E"
     )
 
+    /// The cat itself barely changes — a black cat is a black cat. What moves
+    /// is the ground it sits on and the rim that lifts it off that ground.
     public static let dark = PaintTable(
         values: [
-            .ink: "#F2EDE5",
-            .paper: "#241F1B",
-            .blush: "#D98078",
-            .marking: "#D3CBC1",
-            .shade: "#6A6058",
-            .accent: "#E2725B",
-            .guide: "#6FA8FF",
+            .ink: "#41414F",
+            .fur: "#131319",
+            .iris: "#F5C33A",
+            .pupil: "#0D0A11",
+            .glint: "#FFF8E8",
+            .innerEar: "#D9823A",
+            .nose: "#5E4045",
+            .whisker: "#E4D9C4",
+            .marking: "#32323E",
+            .shade: "#44444F",
+            .guide: "#6FE3FF",
         ],
-        background: "#151210"
+        background: "#10403F"
     )
 }
 
