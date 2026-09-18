@@ -148,6 +148,7 @@ public struct CatRig: Sendable {
         shapes.append(contentsOf: eyes(projector, state: state).map { $0.clippedToHead() })
         shapes.append(contentsOf: muzzle(projector, state: state).map { $0.clippedToHead() })
         shapes.append(contentsOf: whiskers.inFront)
+        shapes.append(contentsOf: browWhiskers(projector))
 
         if state.showRig {
             shapes.append(contentsOf: rigOverlay(projector))
@@ -447,6 +448,29 @@ public struct CatRig: Sendable {
                         style: .filled(.innerEar, opacity: innerVisibility)
                     )
                 )
+
+                // Fur inside the ear, fanning from the base toward the tip and
+                // longest in the middle. Without it the inner ear reads as a
+                // flat orange chip rather than a furred cup.
+                let strands = 5
+                for index in 0..<strands {
+                    let t = (Double(index) + 0.5) / Double(strands)
+                    let root = iFront.lerp(to: iBack, t)
+                    let reach = 0.40 + 0.32 * sin(t * .pi)
+                    var strand = PathBuilder()
+                    strand.move(projector.project(root).position)
+                    strand.line(projector.project(root.lerp(to: iTip, reach)).position)
+                    shapes.append(
+                        Shape2D(
+                            commands: strand.commands,
+                            style: .stroked(
+                                .whisker,
+                                width: weight(proportions.whiskerWidth * 0.62, 1),
+                                opacity: innerVisibility * 0.34
+                            )
+                        )
+                    )
+                }
             }
 
             // Tufts along the ear's front edge. Cheap, and they stop the ear
@@ -459,7 +483,7 @@ public struct CatRig: Sendable {
                 for (index, t) in [0.16, 0.34, 0.52].enumerated() {
                     let root = ear.front.lerp(to: ear.tip, t)
                     let outward = (root - centroid).normalized
-                    let length = [0.135, 0.165, 0.130][index]
+                    let length = [0.105, 0.128, 0.100][index]
                     let tip = root + outward * length + Vec3(0, 0.025, 0)
                     var tuft = PathBuilder()
                     tuft.move(projector.project(root).position)
@@ -511,6 +535,23 @@ public struct CatRig: Sendable {
             let eyeR = eyeR * recede
             let pupilW = pupilW * recede
             let pupilH = pupilH * recede
+
+            // Brow ridge. The reference sets each eye *under* a ridge of fur;
+            // without the shadow it casts, the eyes read as discs stuck onto a
+            // ball rather than set into a skull.
+            var brow = PathBuilder()
+            brow.move(Point2(-eyeR * 0.92, -eyeR * 0.78))
+            brow.quad(Point2(0, -eyeR * 1.46), Point2(eyeR * 0.92, -eyeR * 0.78))
+            shapes.append(
+                Shape2D(
+                    commands: PathBuilder.transformed(brow.commands, by: frame.transform),
+                    style: .stroked(
+                        .shadow,
+                        width: weight(proportions.featureWidth * 1.6, frame.scale),
+                        opacity: visibility * 0.38
+                    )
+                )
+            )
 
             if openness > 0.02 {
                 // No outline: against black fur the amber *is* the eye.
@@ -683,8 +724,8 @@ public struct CatRig: Sendable {
                     commands: PathBuilder.transformed(mouth.commands, by: mouthFrame.transform),
                     style: .stroked(
                         .shade,
-                        width: weight(proportions.featureWidth * 0.88, mouthFrame.scale),
-                        opacity: mouthVisibility * 0.9
+                        width: weight(proportions.featureWidth * 0.95, mouthFrame.scale),
+                        opacity: mouthVisibility
                     )
                 )
             )
@@ -746,9 +787,10 @@ public struct CatRig: Sendable {
         // Roots sit on the whisker pads, level with the nose and below — a root
         // any higher sends the top whisker sweeping straight through the eye.
         let layout: [(lat: Double, lonOffset: Double, tilt: Double, length: Double)] = [
-            (-0.365, 0.010, 0.22, 0.50),
-            (-0.450, 0.000, 0.00, 0.56),
-            (-0.535, -0.010, -0.24, 0.48),
+            (-0.330, 0.014, 0.34, 0.46),
+            (-0.412, 0.006, 0.13, 0.55),
+            (-0.494, -0.002, -0.08, 0.55),
+            (-0.576, -0.012, -0.30, 0.45),
         ]
 
         for side in [-1.0, 1.0] {
@@ -766,7 +808,7 @@ public struct CatRig: Sendable {
                 // whisker clears the cheek.
                 let direction = (east * side + root * 0.45 + north * whisker.tilt).normalized
                 let tip = root + direction * whisker.length
-                let droop = Vec3(0, -0.20 * whisker.length, 0)
+                let droop = Vec3(0, -0.26 * whisker.length, 0)
                 let control = root + direction * (whisker.length * 0.55) + droop
 
                 var path = PathBuilder()
@@ -801,6 +843,56 @@ public struct CatRig: Sendable {
 
         _ = state
         return (behind, inFront)
+    }
+
+    // MARK: - Brow whiskers
+
+    /// The long pale hairs that rise above a cat's eyes.
+    ///
+    /// Distinct from the cheek whiskers and one of the most recognisable things
+    /// in the reference — they sweep up and back off the brow rather than out
+    /// from the muzzle.
+    private func browWhiskers(_ projector: Projector) -> [Shape2D] {
+        let layout: [(lon: Double, lat: Double, lean: Double, length: Double)] = [
+            (0.190, 0.420, 0.04, 0.38),
+            (0.345, 0.355, 0.42, 0.32),
+        ]
+
+        var shapes: [Shape2D] = []
+        for side in [-1.0, 1.0] {
+            for hair in layout {
+                let lon = side * hair.lon
+                let root = Vec3.onSphere(lon: lon, lat: hair.lat)
+                let north = Vec3.north(lon: lon, lat: hair.lat)
+                let east = Vec3.east(lon: lon)
+
+                let direction = (north + east * (side * hair.lean) + root * 0.32).normalized
+                let tip = root + direction * hair.length
+                // Bowed back over the skull rather than straight out.
+                let control = root + direction * (hair.length * 0.55) + north * (hair.length * 0.12)
+
+                let visibility = smoothstep(-0.20, 0.28, projector.rotate(root).z)
+                guard visibility > 0.01 else { continue }
+
+                var path = PathBuilder()
+                path.move(projector.project(root).position)
+                path.quad(
+                    projector.project(control).position,
+                    projector.project(tip).position
+                )
+                shapes.append(
+                    Shape2D(
+                        commands: path.commands,
+                        style: .stroked(
+                            .whisker,
+                            width: weight(proportions.whiskerWidth * 0.8, 1),
+                            opacity: visibility * 0.55
+                        )
+                    )
+                )
+            }
+        }
+        return shapes
     }
 
     // MARK: - Markings
@@ -1011,10 +1103,9 @@ public struct CatRig: Sendable {
     private func crownHairs(_ projector: Projector) -> [Shape2D] {
         // Short, splayed and curved. Straight parallel hairs read as antennae.
         let layout: [(lon: Double, lat: Double, lean: Double, length: Double)] = [
-            (-0.200, 1.300, -0.620, 0.230),
-            (-0.075, 1.370, -0.230, 0.300),
-            (0.060, 1.375, 0.180, 0.290),
-            (0.180, 1.305, 0.560, 0.225),
+            (-0.150, 1.330, -0.560, 0.290),
+            (-0.010, 1.385, -0.080, 0.360),
+            (0.140, 1.335, 0.500, 0.285),
         ]
 
         return layout.compactMap { hair in
