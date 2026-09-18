@@ -1,0 +1,16 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.xcworkspace/xcuserdata/
+
+# face-preview output
+preview/
+
+# macOS
+.DS_Store
