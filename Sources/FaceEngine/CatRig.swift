@@ -49,16 +49,34 @@ public struct CatProportions: Sendable {
     public var muzzleLongitude = 0.185
     public var muzzleLatitude = -0.450
 
-    /// The snout, as a sphere sitting in front of the skull.
+    /// The snout, as an ellipsoid sitting in front of the skull.
     ///
     /// This is the difference between a head and a ball with a face painted on
     /// it. Square-on the snout hides inside the head's own outline; on a turn it
     /// breaks the silhouette ahead of the cheek, and a silhouette that changes
     /// shape is the clearest evidence the head is solid.
-    public var muzzleForward = 1.08
-    public var muzzleDrop = -0.30
-    public var muzzleRadius = 0.31
-    public var muzzleWidth = 1.15
+    public var muzzleForward = 0.98
+    public var muzzleDrop = -0.36
+    /// Semi-axes of the snout ellipsoid in head space.
+    ///
+    /// Stretched along `depth` — forward, away from the skull. A sphere here
+    /// projects to a circle, and a circle pushing out of a head silhouette reads
+    /// as a ball stuck on the cheek. Stretching forward means the depth axis is
+    /// edge-on when the cat faces you (so the snout stays hidden) and swings
+    /// into view as it turns, elongating the silhouette in the direction of the
+    /// turn — a muzzle tapering ahead of the face rather than a bump.
+    public var muzzleWidthAxis = 0.30
+    public var muzzleHeightAxis = 0.30
+    public var muzzleDepthAxis = 0.50
+    /// Width of the blend where snout and skull meet, in radius units.
+    ///
+    /// Generous on purpose. Measured off the references, a cat's profile slides
+    /// continuously from the brow down to the nose — the leading edge of the
+    /// ginger photo runs 0.148 to 0.012 of head width across half the head's
+    /// height. It is a ramp, not a lobe, and only about 6-7% of head width
+    /// stands proud of the cheek. Too narrow a blend, or too much protrusion
+    /// packed into too short a span, and the muzzle reads as a ball stuck on.
+    public var muzzleBlend = 0.22
     /// How far the nose, mouth and whisker pads ride in front of the skull, so
     /// they swing ahead of the face on a turn instead of sliding across it.
     public var muzzleLift = 0.40
@@ -219,14 +237,73 @@ public struct CatRig: Sendable {
     private func snoutLift(lon: Double, lat: Double) -> Double {
         let direction = Vec3.onSphere(lon: lon, lat: lat)
         let centre = Vec3(0, proportions.muzzleDrop, proportions.muzzleForward)
-        let a = proportions.muzzleRadius
 
-        // |t·d − m|² = a², with d a unit vector: t² − 2t(d·m) + |m|² − a² = 0.
-        let b = direction.dot(centre)
-        let c = centre.dot(centre) - a * a
-        let discriminant = b * b - c
-        guard discriminant >= 0 else { return proportions.muzzleLift }
-        return max(b + discriminant.squareRoot() - 1, 0)
+        // Squash both ray and centre by the ellipsoid's axes; in that space it
+        // is a unit sphere, so the intersection is the usual quadratic.
+        let e = Vec3(
+            direction.x / proportions.muzzleWidthAxis,
+            direction.y / proportions.muzzleHeightAxis,
+            direction.z / proportions.muzzleDepthAxis
+        )
+        let q = Vec3(
+            centre.x / proportions.muzzleWidthAxis,
+            centre.y / proportions.muzzleHeightAxis,
+            centre.z / proportions.muzzleDepthAxis
+        )
+        let ee = e.dot(e)
+        let eq = e.dot(q)
+        let discriminant = eq * eq - ee * (q.dot(q) - 1)
+        guard ee > 1e-12, discriminant >= 0 else { return proportions.muzzleLift }
+        return max((eq + discriminant.squareRoot()) / ee - 1, 0)
+    }
+
+    /// The snout's projected silhouette: centre, semi-axes and rotation.
+    ///
+    /// An ellipsoid projects to an ellipse, and that ellipse falls out of `BBᵀ`
+    /// where `B` is the rotated axes projected to the screen — a 2×2 whose
+    /// eigenvalues are the squared semi-axes and whose eigenvector gives the
+    /// tilt. Worth the algebra: it is what lets the muzzle stretch forward as
+    /// the head turns instead of staying a circle.
+    private func snoutEllipse(
+        _ projector: Projector
+    ) -> (centre: Point2, a: Double, b: Double, angle: Double) {
+        let m = Vec3(0, proportions.muzzleDrop, proportions.muzzleForward)
+        let anchor = projector.project(m)
+        let s = anchor.scale * radius
+
+        let ax = projector.rotate(Vec3(proportions.muzzleWidthAxis, 0, 0))
+        let ay = projector.rotate(Vec3(0, proportions.muzzleHeightAxis, 0))
+        let az = projector.rotate(Vec3(0, 0, proportions.muzzleDepthAxis))
+
+        // Screen y runs downward, so its row is negated.
+        let rx = (ax.x * s, ay.x * s, az.x * s)
+        let ry = (-ax.y * s, -ay.y * s, -az.y * s)
+
+        let m11 = rx.0 * rx.0 + rx.1 * rx.1 + rx.2 * rx.2
+        let m22 = ry.0 * ry.0 + ry.1 * ry.1 + ry.2 * ry.2
+        let m12 = rx.0 * ry.0 + rx.1 * ry.1 + rx.2 * ry.2
+
+        let trace = m11 + m22
+        let determinant = m11 * m22 - m12 * m12
+        let spread = max(trace * trace / 4 - determinant, 0).squareRoot()
+        let larger = trace / 2 + spread
+        let smaller = max(trace / 2 - spread, 0)
+        let angle = (abs(m12) < 1e-12 && abs(m11 - m22) < 1e-12)
+            ? 0
+            : 0.5 * atan2(2 * m12, m11 - m22)
+
+        return (anchor.position, larger.squareRoot(), smaller.squareRoot(), angle)
+    }
+
+    /// Polynomial smooth maximum.
+    ///
+    /// A hard max leaves a crease where the two silhouettes cross, and a crease
+    /// is exactly what makes the muzzle read as a lump set on the cheek rather
+    /// than as a form growing out of it.
+    private func smoothMax(_ a: Double, _ b: Double, _ k: Double) -> Double {
+        guard k > 1e-9 else { return max(a, b) }
+        let h = max(k - abs(a - b), 0) / k
+        return max(a, b) + h * h * k * 0.25
     }
 
     /// Distance from the head centre to the far side of the snout ellipse along
@@ -240,19 +317,28 @@ public struct CatRig: Sendable {
     private func snoutReach(
         from origin: Point2,
         along direction: Point2,
-        snout: (centre: Point2, rx: Double, ry: Double)
+        snout: (centre: Point2, a: Double, b: Double, angle: Double)
     ) -> Double {
-        let px = origin.x - snout.centre.x
-        let py = origin.y - snout.centre.y
-        let rx2 = snout.rx * snout.rx
-        let ry2 = snout.ry * snout.ry
+        // Into the ellipse's own frame, where its axes are the coordinate axes.
+        let c = cos(-snout.angle)
+        let s = sin(-snout.angle)
+        let ox = origin.x - snout.centre.x
+        let oy = origin.y - snout.centre.y
+        let px = ox * c - oy * s
+        let py = ox * s + oy * c
+        let dx = direction.x * c - direction.y * s
+        let dy = direction.x * s + direction.y * c
 
-        let a = direction.x * direction.x / rx2 + direction.y * direction.y / ry2
-        let b = 2 * (px * direction.x / rx2 + py * direction.y / ry2)
-        let c = px * px / rx2 + py * py / ry2 - 1
+        let rx2 = snout.a * snout.a
+        let ry2 = snout.b * snout.b
+        guard rx2 > 1e-12, ry2 > 1e-12 else { return 0 }
+
+        let a = dx * dx / rx2 + dy * dy / ry2
+        let b = 2 * (px * dx / rx2 + py * dy / ry2)
+        let cc = px * px / rx2 + py * py / ry2 - 1
         guard a > 1e-12 else { return 0 }
 
-        let discriminant = b * b - 4 * a * c
+        let discriminant = b * b - 4 * a * cc
         guard discriminant >= 0 else { return 0 }
 
         let root = discriminant.squareRoot()
@@ -272,7 +358,7 @@ public struct CatRig: Sendable {
         let roll = state.pose.roll
         let cosRoll = cos(roll)
         let sinRoll = sin(roll)
-        let snout = snoutProjection(projector)
+        let snout = snoutEllipse(projector)
 
         return (0..<samples).map { i in
             let theta = 2 * .pi * Double(i) / Double(samples)
@@ -290,9 +376,10 @@ public struct CatRig: Sendable {
             guard skullReach > 1e-9 else { return projector.center }
 
             let direction = Point2(dx / skullReach, dy / skullReach)
-            let reach = max(
+            let reach = smoothMax(
                 skullReach,
-                snoutReach(from: projector.center, along: direction, snout: snout)
+                snoutReach(from: projector.center, along: direction, snout: snout),
+                radius * proportions.muzzleBlend
             )
             return Point2(
                 projector.center.x + direction.x * reach,
@@ -308,19 +395,6 @@ public struct CatRig: Sendable {
     /// A sphere's silhouette under perspective is a circle slightly larger than
     /// its radius would suggest — `a·f / √(D² − a²)` rather than `a·f / D` —
     /// and at this size the difference is visible, so it is worth being exact.
-    /// Where the snout sphere lands on the canvas, and how big it reads.
-    private func snoutProjection(_ projector: Projector) -> (centre: Point2, rx: Double, ry: Double) {
-        let centre = Vec3(0, proportions.muzzleDrop, proportions.muzzleForward)
-        let anchor = projector.project(centre)
-        let depth = projector.rotate(centre).z
-
-        let a = proportions.muzzleRadius
-        let distance = head.focalLength - depth
-        let projected = a * head.focalLength
-            / max((distance * distance - a * a).squareRoot(), 0.001)
-            * radius
-        return (anchor.position, projected * proportions.muzzleWidth, projected)
-    }
 
     // MARK: - Rim light
 
