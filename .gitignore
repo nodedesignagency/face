@@ -17,3 +17,4 @@ preview/
 
 # iOS build output
 App/.build-ios/
+App/.build-device/

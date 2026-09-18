@@ -87,6 +87,31 @@ Tests/            35 tests over the engine
 It builds, boots the simulator, installs and launches. `xcrun simctl list
 devices available` lists the names it accepts.
 
+**On your own iPhone** the app has to be signed, which takes a one-time setup.
+A free Apple ID is enough:
+
+1. Xcode ▸ Settings ▸ Accounts, sign in with your Apple ID.
+2. Open `App/CatFace.xcodeproj`, select the **CatFace** target ▸ **Signing &
+   Capabilities**, tick *Automatically manage signing* and pick your name under
+   **Team**. If the bundle identifier is rejected as taken, change it to
+   something of your own, e.g. `com.yourname.CatFace`.
+3. Plug the phone in, unlock it, tap **Trust**, pick it in the toolbar, and Run.
+4. First launch only: the phone will refuse an untrusted certificate. Approve it
+   at Settings ▸ General ▸ VPN & Device Management ▸ your Apple ID ▸ **Trust**.
+
+After that, from the terminal:
+
+```
+./scripts/run-device.sh                         # auto-detects team and device
+BUNDLE_ID=com.yourname.CatFace ./scripts/run-device.sh
+```
+
+On a free Apple ID the signature lasts **seven days**, after which the app stops
+opening until you run it again. A paid developer account lifts that.
+
+Tilt tracking is device-only — the simulator has no motion hardware, so the
+**Tilt** control is hidden there.
+
 **In Xcode** — open `App/CatFace.xcodeproj` and run. iOS 16+ / macOS 13+,
 multiplatform target, no dependencies. The project pulls `CatFaceUI` from the
 package at the repo root.
