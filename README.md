@@ -77,7 +77,17 @@ Tests/            35 tests over the engine
 
 ## Running it
 
-**The app** — open `App/CatFace.xcodeproj` and run. iOS 16+ / macOS 13+,
+**On the iOS simulator**, from the repo root:
+
+```
+./scripts/run-ios.sh              # newest available iPhone, or one already booted
+./scripts/run-ios.sh "iPhone 16"  # a named device
+```
+
+It builds, boots the simulator, installs and launches. `xcrun simctl list
+devices available` lists the names it accepts.
+
+**In Xcode** — open `App/CatFace.xcodeproj` and run. iOS 16+ / macOS 13+,
 multiplatform target, no dependencies. The project pulls `CatFaceUI` from the
 package at the repo root.
 

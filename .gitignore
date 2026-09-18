@@ -14,3 +14,6 @@ preview/
 
 # macOS
 .DS_Store
+
+# iOS build output
+App/.build-ios/
