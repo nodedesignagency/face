@@ -110,9 +110,9 @@ public struct CatRig: Sendable {
         )
         let projector = Projector(pose: state.pose, head: head, center: center)
 
+        // One silhouette: the outline already has the snout unioned into it.
         let outlinePoints = headOutlinePoints(projector, state: state)
         let outline = Spline.closedLoop(outlinePoints)
-        let snout = snoutSilhouette(projector)
         let rim = weight(proportions.outlineWidth, 1)
 
         var shapes: [Shape2D] = []
@@ -135,13 +135,6 @@ public struct CatRig: Sendable {
         shapes.append(contentsOf: crownHairs(projector))
         shapes.append(contentsOf: ears(projector))
 
-        // The snout goes under the head, so the skull's own fill hides the part
-        // of it that is inside the outline and only the protruding bump shows.
-        // Where the outline crosses the bump, the head's rim reads as the seam
-        // between cheek and snout.
-        shapes.append(
-            Shape2D(commands: snout, style: .outlined(fill: .fur, stroke: .ink, width: rim))
-        )
         shapes.append(
             Shape2D(commands: outline, style: .outlined(fill: .fur, stroke: .ink, width: rim))
         )
@@ -163,9 +156,10 @@ public struct CatRig: Sendable {
         return FaceDrawing(
             size: canvas,
             shapes: shapes.filter { !$0.isEmpty },
-            // Two subpaths, unioned by the non-zero fill rule: the muzzle
-            // features ride out past the skull and must not be cut off at it.
-            headOutline: outline + snout
+            // A single subpath now, with the snout already part of it, so the
+            // muzzle features clip to the real silhouette and the old opposite-
+            // winding hazard of a second subpath is gone.
+            headOutline: outline
         )
     }
 
@@ -214,6 +208,36 @@ public struct CatRig: Sendable {
         return amp * w * w * (0.58 + 0.42 * cos(d / width * .pi * 3))
     }
 
+    /// Distance from the head centre to the far side of the snout ellipse along
+    /// a unit direction, or 0 if the ray misses it.
+    ///
+    /// This is what fuses the snout into the head's own outline instead of
+    /// stacking it underneath as a second shape. Two shapes each carrying a rim
+    /// read as two blobs with a border drawn between them — the head's outline
+    /// cuts straight across the muzzle — which is exactly what makes a drawing
+    /// look assembled rather than drawn.
+    private func snoutReach(
+        from origin: Point2,
+        along direction: Point2,
+        snout: (centre: Point2, rx: Double, ry: Double)
+    ) -> Double {
+        let px = origin.x - snout.centre.x
+        let py = origin.y - snout.centre.y
+        let rx2 = snout.rx * snout.rx
+        let ry2 = snout.ry * snout.ry
+
+        let a = direction.x * direction.x / rx2 + direction.y * direction.y / ry2
+        let b = 2 * (px * direction.x / rx2 + py * direction.y / ry2)
+        let c = px * px / rx2 + py * py / ry2 - 1
+        guard a > 1e-12 else { return 0 }
+
+        let discriminant = b * b - 4 * a * c
+        guard discriminant >= 0 else { return 0 }
+
+        let root = discriminant.squareRoot()
+        return max((-b + root) / (2 * a), 0)
+    }
+
     private func headOutlinePoints(_ projector: Projector, state: FaceState) -> [Point2] {
         let (halfWidth, halfHeight) = projector.silhouette
         // A sphere's silhouette under perspective sits slightly outside its
@@ -221,19 +245,37 @@ public struct CatRig: Sendable {
         let f = head.focalLength
         let bulge = f / max((f * f - 1).squareRoot(), 0.001)
 
-        let samples = 72
+        // Denser than the head alone needs: the union picks up a corner where
+        // the muzzle meets the cheek, and too few samples facet it.
+        let samples = 144
         let roll = state.pose.roll
         let cosRoll = cos(roll)
         let sinRoll = sin(roll)
+        let snout = snoutProjection(projector)
 
         return (0..<samples).map { i in
             let theta = 2 * .pi * Double(i) / Double(samples)
             let r = headProfile(theta, yaw: state.pose.yaw) * bulge
             let x = halfWidth * r * cos(theta)
             let y = -halfHeight * r * sin(theta)
+
+            // Roll the skull's own offset into canvas space, then walk that same
+            // ray out to whichever of skull or snout reaches further. Taking the
+            // max along every ray unions the two into a single silhouette, so
+            // there is one outline and no line cutting across the muzzle.
+            let dx = x * cosRoll - y * sinRoll
+            let dy = x * sinRoll + y * cosRoll
+            let skullReach = (dx * dx + dy * dy).squareRoot()
+            guard skullReach > 1e-9 else { return projector.center }
+
+            let direction = Point2(dx / skullReach, dy / skullReach)
+            let reach = max(
+                skullReach,
+                snoutReach(from: projector.center, along: direction, snout: snout)
+            )
             return Point2(
-                projector.center.x + x * cosRoll - y * sinRoll,
-                projector.center.y + x * sinRoll + y * cosRoll
+                projector.center.x + direction.x * reach,
+                projector.center.y + direction.y * reach
             )
         }
     }
@@ -257,24 +299,6 @@ public struct CatRig: Sendable {
             / max((distance * distance - a * a).squareRoot(), 0.001)
             * radius
         return (anchor.position, projected * proportions.muzzleWidth, projected)
-    }
-
-    private func snoutSilhouette(_ projector: Projector) -> [PathCommand] {
-        let (anchorPosition, rx, ry) = snoutProjection(projector)
-
-        // Sampled rather than built with `PathBuilder.ellipse`, so it winds the
-        // same way as the head outline. The two share a clip path, and under the
-        // non-zero fill rule opposite windings would subtract instead of union —
-        // punching a hole through the face exactly where the muzzle sits.
-        let samples = 48
-        let points = (0..<samples).map { index -> Point2 in
-            let theta = 2 * .pi * Double(index) / Double(samples)
-            return Point2(
-                anchorPosition.x + rx * cos(theta),
-                anchorPosition.y - ry * sin(theta)
-            )
-        }
-        return Spline.closedLoop(points)
     }
 
     // MARK: - Rim light
