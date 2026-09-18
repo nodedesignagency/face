@@ -33,21 +33,21 @@ public struct CatProportions: Sendable {
     /// Eyes this size, set this close, are most of the character. They crowd
     /// the muzzle down the face, which is why the nose and mouth sit lower here
     /// than anatomy alone would put them.
-    public var eyeLongitude = 0.440
-    public var eyeLatitude = 0.090
-    public var eyeRadius = 0.330
-    public var pupilWidth = 0.250
-    public var pupilHeight = 0.272
+    public var eyeLongitude = 0.335
+    public var eyeLatitude = 0.005
+    public var eyeRadius = 0.300
+    public var pupilWidth = 0.228
+    public var pupilHeight = 0.248
     /// Floats the pupils off the surface. This is what makes them slide across
     /// the iris as the head turns. Perspective means any lift also nudges the
     /// pupil outward at rest, so keep it small enough that the resting eye
     /// still reads as centred.
     public var pupilLift = 0.025
 
-    public var noseLatitude = -0.270
-    public var mouthLatitude = -0.400
-    public var muzzleLongitude = 0.215
-    public var muzzleLatitude = -0.380
+    public var noseLatitude = -0.345
+    public var mouthLatitude = -0.470
+    public var muzzleLongitude = 0.185
+    public var muzzleLatitude = -0.450
 
     /// The snout, as a sphere sitting in front of the skull.
     ///
@@ -55,13 +55,13 @@ public struct CatProportions: Sendable {
     /// it. Square-on the snout hides inside the head's own outline; on a turn it
     /// breaks the silhouette ahead of the cheek, and a silhouette that changes
     /// shape is the clearest evidence the head is solid.
-    public var muzzleForward = 1.00
+    public var muzzleForward = 1.08
     public var muzzleDrop = -0.30
-    public var muzzleRadius = 0.32
+    public var muzzleRadius = 0.31
     public var muzzleWidth = 1.15
     /// How far the nose, mouth and whisker pads ride in front of the skull, so
     /// they swing ahead of the face on a turn instead of sliding across it.
-    public var muzzleLift = 0.30
+    public var muzzleLift = 0.40
 
     public var outlineWidth = 0.026
     public var featureWidth = 0.030
@@ -86,7 +86,7 @@ public struct CatRig: Sendable {
 
     public init(
         canvas: Point2 = Point2(520, 780),
-        headCenter: Point2 = Point2(260, 300),
+        headCenter: Point2 = Point2(260, 262),
         radius: Double = 138,
         proportions: CatProportions = CatProportions()
     ) {
@@ -188,8 +188,8 @@ public struct CatRig: Sendable {
         // putting the bulge there is most of what stops the head reading as a
         // circle. Widening is also the only safe direction: pulling the outline
         // inward would let features off the unit sphere escape it.
-        r += 0.130 * window(theta, center: -0.30, width: 1.05)
-        r += 0.130 * window(theta, center: .pi + 0.30, width: 1.05)
+        r += 0.165 * window(theta, center: -0.30, width: 1.05)
+        r += 0.165 * window(theta, center: .pi + 0.30, width: 1.05)
 
         // Cheek ruff. Drifting the tufts against the yaw makes the fur read as
         // wrapping around a solid head instead of being painted on a disc.
@@ -245,7 +245,8 @@ public struct CatRig: Sendable {
     /// A sphere's silhouette under perspective is a circle slightly larger than
     /// its radius would suggest — `a·f / √(D² − a²)` rather than `a·f / D` —
     /// and at this size the difference is visible, so it is worth being exact.
-    private func snoutSilhouette(_ projector: Projector) -> [PathCommand] {
+    /// Where the snout sphere lands on the canvas, and how big it reads.
+    private func snoutProjection(_ projector: Projector) -> (centre: Point2, rx: Double, ry: Double) {
         let centre = Vec3(0, proportions.muzzleDrop, proportions.muzzleForward)
         let anchor = projector.project(centre)
         let depth = projector.rotate(centre).z
@@ -255,19 +256,22 @@ public struct CatRig: Sendable {
         let projected = a * head.focalLength
             / max((distance * distance - a * a).squareRoot(), 0.001)
             * radius
+        return (anchor.position, projected * proportions.muzzleWidth, projected)
+    }
+
+    private func snoutSilhouette(_ projector: Projector) -> [PathCommand] {
+        let (anchorPosition, rx, ry) = snoutProjection(projector)
 
         // Sampled rather than built with `PathBuilder.ellipse`, so it winds the
         // same way as the head outline. The two share a clip path, and under the
         // non-zero fill rule opposite windings would subtract instead of union —
         // punching a hole through the face exactly where the muzzle sits.
-        let rx = projected * proportions.muzzleWidth
-        let ry = projected
         let samples = 48
         let points = (0..<samples).map { index -> Point2 in
             let theta = 2 * .pi * Double(index) / Double(samples)
             return Point2(
-                anchor.position.x + rx * cos(theta),
-                anchor.position.y - ry * sin(theta)
+                anchorPosition.x + rx * cos(theta),
+                anchorPosition.y - ry * sin(theta)
             )
         }
         return Spline.closedLoop(points)
@@ -319,8 +323,8 @@ public struct CatRig: Sendable {
         // sits near the limb, where a turn foreshortens it to nothing and the
         // far ear vanishes; keeping both roots ahead of the equator holds the
         // ear's width right through the turn.
-        let frontSurface = Vec3(side * 0.02, 0.92, 0.36).normalized
-        let backSurface = Vec3(side * 0.92, 0.46, 0.30).normalized
+        let frontSurface = Vec3(side * 0.18, 0.92, 0.34).normalized
+        let backSurface = Vec3(side * 0.95, 0.42, 0.26).normalized
 
         // Roots sunk just under the surface so the join is always buried behind
         // the head fill, whatever the pose.
@@ -333,7 +337,7 @@ public struct CatRig: Sendable {
         // A taller, more upright ear foreshortens less, so the far one still
         // reads as an ear at the edge of the turn instead of a sliver.
         let baseMid = ((frontSurface + backSurface) * 0.5).normalized
-        let tip = baseMid + Vec3(side * 0.15, 0.82, -0.10)
+        let tip = baseMid + Vec3(side * 0.22, 0.68, -0.10)
 
         let opening = Vec3(side * 0.62, 0.30, 0.72).normalized
         return (front, back, tip, opening)
@@ -376,7 +380,7 @@ public struct CatRig: Sendable {
             let innerVisibility = min(1, turn * 2.2)
             if turn > 0.02 {
                 let centroid = (ear.front + ear.back + ear.tip) * (1.0 / 3.0)
-                let shrink = 0.70 * turn
+                let shrink = 0.78 * turn
                 let lift = ear.opening * 0.05
                 let iFront = centroid.lerp(to: ear.front, shrink) + lift
                 let iBack = centroid.lerp(to: ear.back, shrink) + lift
@@ -543,6 +547,23 @@ public struct CatRig: Sendable {
 
         // Nose: a soft downward triangle, riding out on the snout.
         let lift = proportions.muzzleLift
+
+        // The muzzle patch: fur on the snout catches more light than the cheeks
+        // around it. Without it the lower face is one flat black expanse, since
+        // the snout itself stays invisible until the head turns. Drawn in the
+        // muzzle's own tangent frame so it foreshortens with everything else —
+        // sized off the snout silhouette it came out a disc over the whole face.
+        let patchFrame = projector.tangentFrame(lon: 0, lat: -0.400, lift: lift)
+        if patchFrame.visibility() > 0.01 {
+            var patch = PathBuilder()
+            patch.ellipse(center: .zero, rx: 0.190 * radius, ry: 0.140 * radius)
+            shapes.append(
+                Shape2D(
+                    commands: PathBuilder.transformed(patch.commands, by: patchFrame.transform),
+                    style: .filled(.marking, opacity: 0.30 * patchFrame.visibility())
+                )
+            )
+        }
         let noseFrame = projector.tangentFrame(
             lon: 0, lat: proportions.noseLatitude, lift: lift
         )
@@ -553,8 +574,8 @@ public struct CatRig: Sendable {
             // wide it just reads as a blob.
             // All three corners rounded. A cat's nose is a soft triangle — sharp
             // top corners and a needle tip turn it into a kite.
-            let w = 0.088 * radius
-            let h = 0.075 * radius
+            let w = 0.058 * radius
+            let h = 0.052 * radius
             let top = -h * 0.55
             var nose = PathBuilder()
             nose.move(Point2(-w * 0.72, top))
@@ -585,8 +606,8 @@ public struct CatRig: Sendable {
         )
         let mouthVisibility = mouthFrame.visibility()
         if mouthVisibility > 0.01 {
-            let w = 0.110 * radius
-            let d = 0.072 * radius
+            let w = 0.090 * radius
+            let d = 0.058 * radius
             // The philtrum is drawn thinner and separately. At the mouth's own
             // weight it fuses with the nose above into one stalk.
             var philtrum = PathBuilder()
@@ -675,14 +696,14 @@ public struct CatRig: Sendable {
         // Roots sit on the whisker pads, level with the nose and below — a root
         // any higher sends the top whisker sweeping straight through the eye.
         let layout: [(lat: Double, lonOffset: Double, tilt: Double, length: Double)] = [
-            (-0.265, 0.010, 0.22, 0.50),
-            (-0.350, 0.000, 0.00, 0.56),
-            (-0.435, -0.010, -0.24, 0.48),
+            (-0.365, 0.010, 0.22, 0.50),
+            (-0.450, 0.000, 0.00, 0.56),
+            (-0.535, -0.010, -0.24, 0.48),
         ]
 
         for side in [-1.0, 1.0] {
             for whisker in layout {
-                let lon = side * (0.360 + whisker.lonOffset)
+                let lon = side * (0.330 + whisker.lonOffset)
                 let lat = whisker.lat
                 // Whiskers grow from the pads, which sit on the snout, so their
                 // roots ride out in front of the skull with it.
@@ -814,8 +835,8 @@ public struct CatRig: Sendable {
 
         let topY = headCenter.y + radius * 0.80 + state.breath * radius * 0.010
         let baseY = canvas.y - radius * 0.32
-        let topHalf = radius * 0.48
-        let baseHalf = radius * 0.78
+        let topHalf = radius * 0.42
+        let baseHalf = radius * 0.88
         let footY = baseY + radius * 0.14
 
         var shapes: [Shape2D] = []
