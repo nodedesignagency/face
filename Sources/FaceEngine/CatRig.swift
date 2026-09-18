@@ -36,8 +36,8 @@ public struct CatProportions: Sendable {
     public var eyeLongitude = 0.440
     public var eyeLatitude = 0.090
     public var eyeRadius = 0.330
-    public var pupilWidth = 0.208
-    public var pupilHeight = 0.240
+    public var pupilWidth = 0.250
+    public var pupilHeight = 0.272
     /// Floats the pupils off the surface. This is what makes them slide across
     /// the iris as the head turns. Perspective means any lift also nudges the
     /// pupil outward at rest, so keep it small enough that the resting eye
@@ -85,9 +85,9 @@ public struct CatRig: Sendable {
     public var headCenter: Point2
 
     public init(
-        canvas: Point2 = Point2(520, 700),
-        headCenter: Point2 = Point2(260, 255),
-        radius: Double = 140,
+        canvas: Point2 = Point2(520, 780),
+        headCenter: Point2 = Point2(260, 300),
+        radius: Double = 138,
         proportions: CatProportions = CatProportions()
     ) {
         self.canvas = canvas
@@ -206,12 +206,12 @@ public struct CatRig: Sendable {
         return w * w
     }
 
-    private func ruff(_ theta: Double, center: Double, width: Double = 0.66, amp: Double = 0.052) -> Double {
+    private func ruff(_ theta: Double, center: Double, width: Double = 0.72, amp: Double = 0.090) -> Double {
         let d = wrapAngle(theta - center)
         guard abs(d) < width else { return 0 }
         let w = cos(d / width * .pi / 2)
         // A gentle two-lobed ripple inside the window: soft fur, not spikes.
-        return amp * w * w * (0.62 + 0.38 * cos(d / width * .pi * 2))
+        return amp * w * w * (0.58 + 0.42 * cos(d / width * .pi * 3))
     }
 
     private func headOutlinePoints(_ projector: Projector, state: FaceState) -> [Point2] {
@@ -319,8 +319,8 @@ public struct CatRig: Sendable {
         // sits near the limb, where a turn foreshortens it to nothing and the
         // far ear vanishes; keeping both roots ahead of the equator holds the
         // ear's width right through the turn.
-        let frontSurface = Vec3(side * 0.07, 0.94, 0.33).normalized
-        let backSurface = Vec3(side * 0.75, 0.56, 0.35).normalized
+        let frontSurface = Vec3(side * 0.02, 0.92, 0.36).normalized
+        let backSurface = Vec3(side * 0.92, 0.46, 0.30).normalized
 
         // Roots sunk just under the surface so the join is always buried behind
         // the head fill, whatever the pose.
@@ -333,7 +333,7 @@ public struct CatRig: Sendable {
         // A taller, more upright ear foreshortens less, so the far one still
         // reads as an ear at the edge of the turn instead of a sliver.
         let baseMid = ((frontSurface + backSurface) * 0.5).normalized
-        let tip = baseMid + Vec3(side * 0.11, 0.62, -0.10)
+        let tip = baseMid + Vec3(side * 0.15, 0.82, -0.10)
 
         let opening = Vec3(side * 0.62, 0.30, 0.72).normalized
         return (front, back, tip, opening)
@@ -376,11 +376,11 @@ public struct CatRig: Sendable {
             let innerVisibility = min(1, turn * 2.2)
             if turn > 0.02 {
                 let centroid = (ear.front + ear.back + ear.tip) * (1.0 / 3.0)
-                let shrink = 0.62 * turn
+                let shrink = 0.70 * turn
                 let lift = ear.opening * 0.05
                 let iFront = centroid.lerp(to: ear.front, shrink) + lift
                 let iBack = centroid.lerp(to: ear.back, shrink) + lift
-                let iTip = centroid.lerp(to: ear.tip, shrink) + lift
+                let iTip = centroid.lerp(to: ear.tip, shrink * 0.84) + lift
 
                 var inner = PathBuilder()
                 inner.move(projector.project(iFront).position)
@@ -411,7 +411,7 @@ public struct CatRig: Sendable {
                 for (index, t) in [0.16, 0.34, 0.52].enumerated() {
                     let root = ear.front.lerp(to: ear.tip, t)
                     let outward = (root - centroid).normalized
-                    let length = [0.085, 0.100, 0.080][index]
+                    let length = [0.135, 0.165, 0.130][index]
                     let tip = root + outward * length + Vec3(0, 0.025, 0)
                     var tuft = PathBuilder()
                     tuft.move(projector.project(root).position)
@@ -815,7 +815,7 @@ public struct CatRig: Sendable {
         let topY = headCenter.y + radius * 0.80 + state.breath * radius * 0.010
         let baseY = canvas.y - radius * 0.32
         let topHalf = radius * 0.48
-        let baseHalf = radius * 0.86
+        let baseHalf = radius * 0.78
         let footY = baseY + radius * 0.14
 
         var shapes: [Shape2D] = []
@@ -940,13 +940,14 @@ public struct CatRig: Sendable {
     private func crownHairs(_ projector: Projector) -> [Shape2D] {
         // Short, splayed and curved. Straight parallel hairs read as antennae.
         let layout: [(lon: Double, lat: Double, lean: Double, length: Double)] = [
-            (-0.130, 1.320, -0.520, 0.105),
-            (-0.010, 1.390, -0.120, 0.130),
-            (0.115, 1.330, 0.420, 0.110),
+            (-0.200, 1.300, -0.620, 0.230),
+            (-0.075, 1.370, -0.230, 0.300),
+            (0.060, 1.375, 0.180, 0.290),
+            (0.180, 1.305, 0.560, 0.225),
         ]
 
         return layout.compactMap { hair in
-            let root = Vec3.onSphere(lon: hair.lon, lat: hair.lat)
+            let root = Vec3.onSphere(lon: hair.lon, lat: hair.lat) * 0.88
             let direction = (root + Vec3(hair.lean, 0.70, 0)).normalized
             let tip = root + direction * hair.length
             let control = root + direction * (hair.length * 0.55)

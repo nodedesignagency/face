@@ -14,44 +14,48 @@ public struct PaintTable: Sendable {
         values[paint] ?? "#000000"
     }
 
+    /// Sampled off the painted reference rather than guessed. The coat is a
+    /// *warm* charcoal — #181412 in shadow up to #4D4240 where light catches it
+    /// — not the cool blue-grey it started as, and that warmth is most of why
+    /// the reference reads as fur instead of a silhouette.
     public static let light = PaintTable(
         values: [
-            .ink: "#34343F",
-            .fur: "#1B1B22",
-            .iris: "#F7C63E",
-            .pupil: "#141018",
+            .ink: "#4D4240",
+            .fur: "#221C1A",
+            .iris: "#D2A05E",
+            .pupil: "#0A0806",
             .glint: "#FFFFFF",
-            .innerEar: "#E8913F",
-            .nose: "#A3726F",
-            .whisker: "#F0E6D2",
-            .marking: "#3C3C49",
-            .sheen: "#CFC7B6",
-            .shadow: "#0B0B11",
-            .shade: "#4E4E5B",
+            .innerEar: "#EC8F5F",
+            .nose: "#4A3E3A",
+            .whisker: "#EFE9DC",
+            .marking: "#3B322E",
+            .sheen: "#6A5C56",
+            .shadow: "#100C0B",
+            .shade: "#5A4E49",
             .guide: "#6FE3FF",
         ],
-        background: "#45A79E"
+        background: "#25C0C9"
     )
 
     /// The cat itself barely changes — a black cat is a black cat. What moves
     /// is the ground it sits on and the rim that lifts it off that ground.
     public static let dark = PaintTable(
         values: [
-            .ink: "#41414F",
-            .fur: "#131319",
-            .iris: "#F5C33A",
-            .pupil: "#0D0A11",
+            .ink: "#423835",
+            .fur: "#1A1513",
+            .iris: "#C8975A",
+            .pupil: "#070504",
             .glint: "#FFF8E8",
-            .innerEar: "#D9823A",
-            .nose: "#946663",
-            .whisker: "#E4D9C4",
-            .marking: "#32323E",
-            .sheen: "#B9B2A3",
-            .shadow: "#07070B",
-            .shade: "#44444F",
+            .innerEar: "#DC8355",
+            .nose: "#413633",
+            .whisker: "#E2DACB",
+            .marking: "#332B27",
+            .sheen: "#5C504B",
+            .shadow: "#0A0706",
+            .shade: "#4E433F",
             .guide: "#6FE3FF",
         ],
-        background: "#10403F"
+        background: "#0E4F57"
     )
 }
 
