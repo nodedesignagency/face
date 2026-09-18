@@ -1,4 +1,5 @@
 #if canImport(SwiftUI)
+import Combine
 import CoreGraphics
 import FaceEngine
 import Foundation

@@ -1,5 +1,7 @@
 #if canImport(SwiftUI)
+import Combine
 import FaceEngine
+import Foundation
 import SwiftUI
 
 /// The cat, and the handful of controls that drive it.

@@ -1,4 +1,5 @@
 #if canImport(SwiftUI)
+import CoreGraphics
 import FaceEngine
 import SwiftUI
 
